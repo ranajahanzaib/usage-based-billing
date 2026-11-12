@@ -1,9 +1,9 @@
-# Security Policy
+# Security policy
 
-## Reporting a Vulnerability
+## Reporting a vulnerability
 
-Please do not report security vulnerabilities through public GitHub issues.
+Please do not report security vulnerabilities through public issues. Submit a private report through [GitHub Security Advisories](https://github.com/ranajahanzaib/usage-based-billing/security/advisories/new).
 
-Instead, report them via GitHub's private [Security Advisories](../../security/advisories/new) feature. Include as much detail as possible: a description of the issue, steps to reproduce, and potential impact.
+Include the affected component, impact, and steps to reproduce. The repository maintainers will review the report and coordinate next steps privately. Please avoid publishing exploit details before a fix is available.
 
-You can expect an acknowledgment within 48 hours and a resolution timeline once the issue is confirmed.
+The current HTTP application is a local demonstration without authentication or persistence. Do not expose it to untrusted networks or use it for production billing.

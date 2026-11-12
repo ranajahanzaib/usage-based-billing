@@ -1,10 +1,17 @@
-Fixes #<issue_number_goes_here>
+## Summary
 
-> It's a good idea to open an issue first for discussion.
+Describe the change and the reason for it.
 
-**Description**
-A brief summary of what this PR does and why.
+## Validation
 
-- [ ] Tests pass
-- [ ] README updated if needed
-- [ ] No breaking changes (or described below)
+- [ ] `gofmt` applied
+- [ ] `go test ./...` passes
+- [ ] `go test -race ./...` passes
+- [ ] `go vet ./...` passes
+- [ ] Documentation updated where needed
+
+## Compatibility
+
+Describe any API, schema, or billing-semantics changes. Note migration requirements.
+
+Related issue (optional):

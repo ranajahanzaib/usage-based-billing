@@ -1,0 +1,161 @@
+openapi: 3.1.0
+info:
+  title: Usage Based Billing Local Demo API
+  version: 0.1.0
+  description: >-
+    Nonpersistent, unauthenticated loopback demonstration API. This is not a
+    production API and must not be exposed to untrusted networks.
+servers:
+  - url: http://127.0.0.1:8080
+paths:
+  /healthz:
+    get:
+      operationId: health
+      responses:
+        "200":
+          description: Demo process is available.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status: { type: string, const: ok }
+                  mode: { type: string, const: demo }
+                required: [status, mode]
+  /api/customers:
+    get:
+      operationId: listDemoCustomers
+      responses:
+        "200":
+          description: The three seeded demo customers.
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  type: object
+                  properties:
+                    id: { type: string, enum: [startup, growth, scale] }
+                    name: { type: string }
+                    plan: { type: string, enum: [starter, growth, scale] }
+                  required: [id, name, plan]
+  /api/preview:
+    get:
+      operationId: previewDemoInvoice
+      parameters:
+        - in: query
+          name: customer_id
+          required: false
+          schema:
+            { type: string, enum: [startup, growth, scale], default: startup }
+      responses:
+        "200":
+          description: Recomputed point-in-time preview in integer USD cents.
+          headers:
+            Cache-Control: { schema: { type: string, const: no-store } }
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  calculated_at: { type: string, format: date-time }
+                  period_start: { type: string, format: date-time }
+                  period_end: { type: string, format: date-time }
+                  lines:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        description: { type: string }
+                        quantity: { type: string }
+                        unit: { type: string }
+                        rate: { type: string }
+                        amount_cents: { type: integer, format: int64 }
+                      required:
+                        [description, quantity, unit, rate, amount_cents]
+                  usage:
+                    type: array
+                    items:
+                      type: object
+                      properties:
+                        metric: { type: string }
+                        plan: { type: string }
+                        segment_start: { type: string, format: date-time }
+                        segment_end: { type: string, format: date-time }
+                        recorded_quantity: { type: string }
+                        included_quantity: { type: string }
+                        overage_quantity: { type: string }
+                        unit: { type: string }
+                        pricing_tiers:
+                          type: array
+                          items:
+                            type: object
+                            properties:
+                              up_to: { type: integer, format: int64 }
+                              price_per_unit: { type: string }
+                            required: [price_per_unit]
+                      required:
+                        [
+                          metric,
+                          plan,
+                          segment_start,
+                          segment_end,
+                          recorded_quantity,
+                          included_quantity,
+                          overage_quantity,
+                          unit,
+                          pricing_tiers,
+                        ]
+                  subtotal_cents: { type: integer, format: int64 }
+                  total_cents: { type: integer, format: int64 }
+                required:
+                  [
+                    calculated_at,
+                    period_start,
+                    period_end,
+                    lines,
+                    usage,
+                    subtotal_cents,
+                    total_cents,
+                  ]
+        "404":
+          description: Unknown demo customer identifier.
+        "500":
+          description: Preview calculation failed.
+
+  /api/simulate:
+    post:
+      operationId: simulateCounterUsage
+      description: Stateless demo calculation. Accepted units are not stored.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                customer_id: { type: string, enum: [startup, growth, scale] }
+                metric:
+                  { type: string, enum: [api_requests, processed_documents] }
+                quantity:
+                  {
+                    type: integer,
+                    format: int64,
+                    minimum: 0,
+                    maximum: 10000000,
+                  }
+              required: [customer_id, metric, quantity]
+      responses:
+        "200":
+          description: Preview recomputed with simulated counter quantity.
+          content:
+            application/json:
+              schema:
+                {
+                  $ref: "#/paths/~1api~1preview/get/responses/200/content/application~1json/schema",
+                }
+        "400":
+          description: Invalid or unsupported simulation request.
+        "404":
+          description: Unknown demo customer.

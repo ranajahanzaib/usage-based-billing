@@ -95,3 +95,20 @@ func TestSimulationRejectsOversizedAndUnknownRequests(t *testing.T) {
 		}
 	}
 }
+
+func TestRootEndpointReturnsHTML(t *testing.T) {
+	rr := httptest.NewRecorder()
+	newHandler().ServeHTTP(rr, httptest.NewRequest(http.MethodGet, "/", nil))
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status %d", rr.Code)
+	}
+	if ct := rr.Header().Get("Content-Type"); !strings.Contains(ct, "text/html") {
+		t.Fatalf("expected text/html, got %q", ct)
+	}
+	body := rr.Body.String()
+	for _, expected := range []string{"Usage billing", "customer", "simulate", "out"} {
+		if !strings.Contains(body, expected) {
+			t.Errorf("expected HTML to contain %q", expected)
+		}
+	}
+}

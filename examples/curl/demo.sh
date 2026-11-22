@@ -7,3 +7,7 @@ curl --fail --silent --show-error "$BASE_URL/api/customers"
 printf '\n'
 curl --fail --silent --show-error "$BASE_URL/api/preview?customer_id=startup"
 printf '\n'
+curl --fail --silent --show-error -X POST -H "Content-Type: application/json" \
+  -d '{"customer_id":"startup","metric":"api_requests","quantity":25000}' \
+  "$BASE_URL/api/simulate"
+printf '\n'

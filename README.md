@@ -2,75 +2,297 @@
 
 Self-hosted usage metering and billing infrastructure for SaaS applications.
 
-SaaS products need to measure usage, enforce plan allowances, calculate overages, and explain charges. This project provides an exact-decimal Go billing calculation library, a tenant-aware PostgreSQL schema, and a local demonstration application.
+SaaS products need to measure usage, enforce plan allowances, calculate overages, and explain charges transparently. This project provides an exact-decimal Go billing calculation engine, a local web and REST demonstration server, and a tenant-aware PostgreSQL schema with row-level security and immutable audit triggers.
 
-## What is included
+![Usage Billing Overview](docs/screenshots/overview.png)
+_Figure 1: Local demonstration interface showing an exact point-in-time invoice preview with prorated base fee, counter allowances, and overage calculations._
 
-- UTC calendar-month billing with half-open periods and prorated base fees.
-- Segment-specific counter allowances and graduated overage rates.
-- Time-weighted storage billing in decimal GB-months, with historical plan-segment rates.
-- Decimal-string pricing, exact rational intermediates, half-up cent rounding, and per-segment usage explanations.
-- A loopback-only demo with three example customers on Starter, Growth, and Scale plans.
-- Stateless counter simulations and invoice previews using the same calculation package.
-- PostgreSQL schema constraints, row-level security policies, and immutable-evidence triggers.
+---
 
-**Project status:** the current implementation is a calculation library and demonstration, not a complete production billing service. The demo has no authentication, persistence, or database connection. See [limitations](docs/limitations.md) and the [security policy](docs/security.md).
+## The Problem It Solves
 
-## Quick start
+SaaS billing requires high mathematical precision and auditable evidence. Standard floating-point arithmetic introduces IEEE-754 rounding drift that is unacceptable in financial systems. Additionally, subscription plan changes occur mid-cycle, usage arrives continuously across different metrics (API requests, processed documents, storage byte-seconds), and invoices require deterministic, explainable calculations.
 
-Requires Go 1.27 or newer. The current demo does not require PostgreSQL.
+`usage-based-billing` addresses these challenges by providing:
+
+1. **Exact rational arithmetic:** All money and unit rates enter as decimal strings, evaluate via `math/big.Rat`, and round half-up to integer cents only when final line items materialize.
+2. **Deterministic boundary semantics:** Standard UTC calendar-month intervals with half-open bounds `[start, end)` ensure events on period boundaries are never double-counted or omitted.
+3. **Mid-cycle segment proration:** Subscription segments split allowances and base fees strictly according to elapsed seconds.
+4. **Time-weighted storage metering:** Gauge metrics integrate storage balances across time into decimal GB-months against historical plan segment rates.
+5. **Interactive demonstration:** A loopback-only demo server that exercises invoice previews and stateless counter simulations without external dependencies.
+6. **Hardened database foundation:** PostgreSQL schema with forced row-level security (RLS) policies, GiST exclusion constraints, and triggers prohibiting mutations to immutable billing evidence.
+
+---
+
+## Showcase & Demonstration Gallery
+
+| Demonstration                                                                            | Description                                                                                                                                             |
+| :--------------------------------------------------------------------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Interactive Dashboard**<br>![Dashboard](docs/screenshots/dashboard.png)                | Web demonstration loaded with seeded customer tiers (**Starter**, **Growth**, and **Scale**), displaying active allowances and accrued charges.         |
+| **Stateless Simulation**<br>![Simulation](docs/screenshots/simulation.png)               | Real-time counter simulation adding 25,000 API requests to Northstar Studio, immediately recalculating graduated overages without database persistence. |
+| **Multi-Metric Growth Plan**<br>![Growth Customer](docs/screenshots/customer-growth.png) | Invoice preview for Brightpath Labs demonstrating simultaneous counter overages across both API requests and processed document volume.                 |
+| **Scale Tier Calculation**<br>![Scale Customer](docs/screenshots/customer-scale.png)     | High-volume invoice preview for Atlas Systems illustrating enterprise base fee proration and graduated unit rates ($0.0006/request).                    |
+| **CLI & REST API**<br>![CLI Demo](docs/screenshots/cli-demo.png)                         | Executing `examples/curl/demo.sh` against the loopback daemon, demonstrating `/healthz`, `/api/customers`, `/api/preview`, and `/api/simulate`.         |
+
+---
+
+## Key Features
+
+- **Exact-Decimal Engine:** Zero floating-point math; rational intermediate fractions with Banker's / Half-Up cent rounding.
+- **Half-Open Billing Periods:** Canonical UTC calendar months `[start, end)`; boundary events at `end` cleanly map to the subsequent period.
+- **Segment-Specific Allowances:** Prorated included allowances per plan segment with graduated overage pricing tiers.
+- **Continuous Storage Integration:** Gauge balance history integrated across elapsed seconds to calculate exact decimal GB-months (`1,000,000,000` bytes = 1 GB).
+- **Stateless Counter Simulations:** Recompute previews with added volume on the fly without state mutations.
+- **PostgreSQL Schema:** Row-Level Security (RLS) enforcement per tenant (`app.organization_id`), composite foreign keys, GiST interval exclusion constraints, and immutable-evidence triggers.
+- **Self-Contained Local Demo:** Zero-dependency Go HTTP daemon and web interface for rapid local exploration.
+
+---
+
+## Quick Start
+
+### Prerequisites
+
+- [Go](https://go.dev/) 1.27 or newer
+- Standard shell utilities (`curl`, `make`)
+
+_Note: The local demonstration server does not require PostgreSQL._
+
+### 1. Run Tests
+
+Verify calculation semantics, rounding rules, and demo handlers:
 
 ```sh
 go test ./...
-DEMO_MODE=1 go run ./cmd/server
 ```
 
-Open <http://127.0.0.1:8080>, choose a customer, and preview the current-period calculation. The demo binds to loopback by default and does not store simulated usage. Do not expose it to an untrusted network or use real customer data.
+Run with the race detector:
 
-The demo API provides:
+```sh
+go test -race ./...
+```
 
-- `GET /healthz` — local demo health.
-- `GET /api/customers` — the three seeded examples.
-- `GET /api/preview?customer_id=startup|growth|scale` — a point-in-time invoice preview.
-- `POST /api/simulate` — recompute a preview with bounded counter usage; the added usage is discarded after the response.
+### 2. Launch the Demo Server
 
-See the [demo API specification](docs/openapi.yaml) and [curl example](examples/curl/demo.sh).
+The demonstration server binds strictly to loopback (`127.0.0.1:8080`) and requires explicit activation via `DEMO_MODE=1`:
 
-## Architecture
+```sh
+make run
+# or: DEMO_MODE=1 go run ./cmd/server
+```
+
+### 3. Open the Web Interface
+
+Open your browser to:
+
+```text
+http://127.0.0.1:8080
+```
+
+- Select a customer (**Northstar Studio**, **Brightpath Labs**, or **Atlas Systems**).
+- Review the current-period accrued charges.
+- Enter usage into the simulation input (e.g., `25000` API requests) and click **Calculate simulation** to see immediate recalculation.
+
+---
+
+## REST API & CLI Examples
+
+The demonstration server provides four endpoints documented in [docs/openapi.yaml](docs/openapi.yaml):
+
+| Endpoint         | Method | Description                                                                      |
+| :--------------- | :----- | :------------------------------------------------------------------------------- |
+| `/healthz`       | `GET`  | Health check (`{"status":"ok","mode":"demo"}`)                                   |
+| `/api/customers` | `GET`  | Lists the three seeded customer profiles                                         |
+| `/api/preview`   | `GET`  | Computes a point-in-time invoice preview (`?customer_id=startup\|growth\|scale`) |
+| `/api/simulate`  | `POST` | Computes an invoice preview with simulated counter usage added                   |
+
+### Automated Script
+
+Run the included verification script:
+
+```sh
+./examples/curl/demo.sh
+```
+
+### Manual curl Examples
+
+**List seeded customers:**
+
+```sh
+curl -s http://127.0.0.1:8080/api/customers
+```
+
+**Fetch invoice preview for Starter customer:**
+
+```sh
+curl -s "http://127.0.0.1:8080/api/preview?customer_id=startup"
+```
+
+**Simulate usage (add 25,000 API requests):**
+
+```sh
+curl -s -X POST http://127.0.0.1:8080/api/simulate \
+  -H "Content-Type: application/json" \
+  -d '{"customer_id":"startup","metric":"api_requests","quantity":25000}'
+```
+
+---
+
+## Go Library Integration
+
+Use `internal/billing` directly in Go applications for deterministic billing calculations:
+
+```go
+package main
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/ranajahanzaib/usage-based-billing/internal/billing"
+)
+
+func main() {
+	now := time.Now().UTC()
+	start, end := billing.MonthBounds(now)
+
+	plan := billing.Plan{
+		Key:         "starter",
+		MonthlyBase: "19.00",
+		Prices: map[string]billing.MetricPrice{
+			"api_requests": {
+				Included: "10000",
+				Unit:     "requests",
+				Tiers:    []billing.Tier{{PricePerUnit: "0.0015"}},
+			},
+		},
+	}
+
+	segments := []billing.Segment{
+		{Plan: plan, Start: start, End: end},
+	}
+
+	events := []billing.Event{
+		{Metric: "api_requests", Quantity: 12500, At: now.Add(-time.Hour)},
+	}
+
+	preview, err := billing.PreviewInvoice(segments, events, nil, start, end, now)
+	if err != nil {
+		panic(err)
+	}
+
+	fmt.Printf("Subtotal: $%s\n", preview.Subtotal.String())
+	for _, line := range preview.Lines {
+		fmt.Printf("- %s: %s %s @ $%s = $%s\n",
+			line.Description, line.Quantity, line.Unit, line.Rate, line.Amount.String())
+	}
+}
+```
+
+See [docs/integration-guide.md](docs/integration-guide.md) for patterns covering idempotency, reservation tokens, and two-phase admission.
+
+---
+
+## Architecture & System Design
 
 ```mermaid
-flowchart LR
-  UI[Local demo UI] --> API[Go HTTP demo]
-  API --> Core[Exact-decimal billing library]
-  Core --> Inputs[Plan segments, usage events, storage history]
-  Schema[PostgreSQL schema] -. not connected to demo .-> API
+flowchart TD
+  subgraph Client [Client Interfaces]
+    Browser[Web Browser UI]
+    Curl[CLI / cURL Client]
+  end
+
+  subgraph Server [Go HTTP Demo Server]
+    Mux[net/http ServeMux]
+    HealthHandler[GET /healthz]
+    CustomerHandler[GET /api/customers]
+    PreviewHandler[GET /api/preview]
+    SimulateHandler[POST /api/simulate]
+  end
+
+  subgraph Engine [internal/billing Engine]
+    PreviewInvoice[billing.PreviewInvoice]
+    RationalMath[math/big.Rat Arithmetic]
+    StorageIntegral[Storage Byte-Seconds Integrator]
+    TierScheduler[Graduated Tier Calculator]
+    HalfUpRounding[Money Half-Up Cent Rounder]
+  end
+
+  subgraph Database [PostgreSQL Schema db/migrations]
+    TenantRLS[Forced Row-Level Security]
+    ImmutableTriggers[Immutable Evidence Triggers]
+    GiSTConstraints[GiST Segment Exclusion Constraints]
+  end
+
+  Browser --> Mux
+  Curl --> Mux
+  Mux --> HealthHandler
+  Mux --> CustomerHandler
+  Mux --> PreviewHandler
+  Mux --> SimulateHandler
+  PreviewHandler --> PreviewInvoice
+  SimulateHandler --> PreviewInvoice
+  PreviewInvoice --> RationalMath
+  PreviewInvoice --> StorageIntegral
+  PreviewInvoice --> TierScheduler
+  TierScheduler --> HalfUpRounding
+  Engine -. architectural target .-> Database
 ```
 
-The calculation library is in `internal/billing`; the schema is in `db/migrations`. See [architecture](docs/architecture.md) for component boundaries and transaction requirements.
+See [docs/architecture.md](docs/architecture.md) for detailed transaction boundaries and schema semantics.
 
-## Billing semantics
+---
 
-[Billing semantics](docs/billing-semantics.md) defines period boundaries, proration, allowance rounding, graduated tiers, storage integration, and invoice-preview behavior. Worked examples include counter overage, graduated pricing, storage accrual, and monetary rounding.
+## Billing Semantics & Rules
+
+Refer to [docs/billing-semantics.md](docs/billing-semantics.md) for formal policies:
+
+- **Calendar Month Interval:** UTC `[start, end)`.
+- **Base Fee Accrual:** $\text{Base Fee} \times \frac{\Delta t_{\text{elapsed}}}{\Delta t_{\text{period}}}$.
+- **Floored Counter Allowances:** Segment allowances are calculated using integer division (`Num / Denom`) to prevent granting fractional included units.
+- **Graduated Overage Tiers:** Each consecutive tier covers usage from boundary $N$ up to next boundary $M$.
+- **Storage Byte-Seconds:** Integral of gauge bytes over time divided by $(\text{period seconds} \times 10^9 \text{ bytes/GB})$.
+- **Monetary Rounding:** Exact rational amounts round half-up (`ROUND_HALF_UP`) to integer cents on materialization.
+
+---
 
 ## Development
 
 ```sh
+# Format source files
 make fmt
-go test ./...
+
+# Run unit and handler tests
+make test
+
+# Run tests with race detection
 go test -race ./...
-go vet ./...
+
+# Run static analysis
+make vet
+
+# Compile binary
 make build
 ```
 
-The current tests cover counter and graduated pricing, storage accrual across plan changes, half-open boundaries, partial previews, validation, and demo handlers. PostgreSQL integration, browser end-to-end, and performance tests are not included in the current implementation.
+---
 
-## Integration
+## Project Status & Limitations
 
-The package-level calculation entry point and supported integration boundary are described in the [integration guide](docs/integration-guide.md). The HTTP demo is not an ingestion or production API, and previews are not finalized invoices.
+This repository delivers an exact-decimal billing calculation library, schema design, and demonstration application. It is **not** a turnkey production billing SaaS service.
+
+Key boundaries (see [docs/limitations.md](docs/limitations.md) and [docs/security.md](docs/security.md)):
+
+- The demo server does not connect to PostgreSQL or provide authentication; it runs in loopback demo mode.
+- External payment gateway processing (e.g. Stripe checkout) is outside project scope.
+- Hard-quota enforcement, late-event reconciliation, and invoice finalization workflows require integration into your host application architecture.
+
+---
 
 ## Contributing
 
-See the [contribution guide](CONTRIBUTING.md) and [Code of Conduct](CODE_OF_CONDUCT.md). Vulnerability reports should use the private process in the [security policy](.github/SECURITY.md).
+Contributions are welcome. Please read [CONTRIBUTING.md](CONTRIBUTING.md) and our [Code of Conduct](CODE_OF_CONDUCT.md). For security reports, follow the policy in [.github/SECURITY.md](.github/SECURITY.md).
+
+---
 
 ## License
 
